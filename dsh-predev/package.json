@@ -1,0 +1,31 @@
+{
+  "name": "dsh-predev",
+  "version": "0.3.0",
+  "description": "开发之前：把想法问清楚，写成能开工的 PREDEV.md，需要看效果时做非真原型。一个 DeepSeek Harness bundle，注册 3 个技能。",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "skills",
+    "README.md"
+  ],
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "plugin",
+    "bundle",
+    "skill",
+    "requirements",
+    "prototype"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

@@ -1,0 +1,8 @@
+# dsh-dev bundle patch：profile 的 bundles 列表包含本包时应用的层。
+#
+# 行内按包名引用插件，Node 解析会在 `dsh plugin add` 链接后找到安装好的代码。
+
+- insert:
+    - id: dev-discipline
+      name: 'dsh-dev'
+      # config: {}            # 本插件没有可配项：条款在 skills/，常驻段在 prompt.md

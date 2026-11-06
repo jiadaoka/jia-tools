@@ -1,0 +1,37 @@
+{
+  "name": "dsh-dev",
+  "version": "0.4.0",
+  "description": "开发时的纪律：18 条按项目身份装配的条款、6 条常驻提示、两个门禁。一个 DeepSeek Harness bundle。",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "src",
+    "cordis.patch.yml",
+    "prompt.md",
+    "skills",
+    "draft",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "plugin",
+    "bundle",
+    "skill",
+    "convention",
+    "guard"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

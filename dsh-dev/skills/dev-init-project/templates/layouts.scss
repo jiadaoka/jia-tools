@@ -1,0 +1,68 @@
+// 布局与浮层外观。一个项目一次，页面和容器只写类名。
+//
+// 页面骨架：.layout-wrapper > (.layout-header?) + .layout-body + (.layout-footer?)
+//   头尾可选，主体必须有；滚动只发生在 .layout-body 上。padding 按项目自己的密度调。
+//   页尾自带一条上分隔线，业务里不要再给 layout-footer 加 border-top。
+// 浮层外观：容器挂 modal-class="dialog-model" 与 header-class="dialog-header" 就能拿到，
+//   el-dialog 自带的 padding 被去掉，标题区自带内边距和一根下分隔线。
+//
+// 那根分隔线的颜色用的是项目的线条令牌（--line / --border-color / 你自己的名字）。
+
+.layout-wrapper {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+
+  .layout-header,
+  .layout-footer {
+    flex-shrink: 0;
+    padding: 8px;
+  }
+
+  .layout-body {
+    flex-grow: 1;
+    height: 0;
+    overflow-y: auto;
+    padding: 8px;
+  }
+
+  .layout-footer {
+    position: relative;
+
+    &::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      height: 1px;
+      background-color: var(--line);
+    }
+  }
+}
+
+.dialog-model {
+  .el-dialog {
+    padding: 0;
+  }
+
+  .dialog-header {
+    padding: 8px 32px 8px;
+    position: relative;
+
+    .el-dialog__title {
+      font-size: 14px;
+      line-height: 22px;
+    }
+
+    &::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 1px;
+      background-color: var(--line);
+    }
+  }
+}
