@@ -1,7 +1,7 @@
 {
   "name": "dsh-dev",
-  "version": "0.4.0",
-  "description": "开发时的纪律：18 条按项目身份装配的条款、6 条常驻提示、两个门禁。一个 DeepSeek Harness bundle。",
+  "version": "0.6.0",
+  "description": "开发时的纪律：14 条按项目身份装配的条款、6 条常驻提示、两个门禁。一个 DeepSeek Harness bundle。",
   "type": "module",
   "main": "index.js",
   "exports": {

@@ -24,6 +24,21 @@ const GIT_WRITE =
 const GIT_DESTRUCTIVE =
   /^git\s+(?:(?:-[Cc]\s+\S+|--?\S+)\s+)*(branch\s+(?:-[dD]|--delete)|tag\s+(?:-d|--delete)|stash\s+(?:drop|clear))\b/
 
+/**
+ * 构建、打包、编译、测试类命令。
+ *
+ * 这些会写产物、占 CPU、改快照，而且「跑通了吗」这个判断属于开发者。
+ * 只认命令开头的包管理器脚本或构建器本身：`npm run dev` 不是构建，
+ * `npm install` 也不是，`vite` 单跑是 dev server。
+ */
+const BUILD_COMMAND = new RegExp(
+  [
+    '^(?:npm|pnpm|yarn|bun)\\s+(?:run\\s+)?(?:build|dist|bundle|package|compile|test|test:[\\w-]+|typecheck|type-check|lint|check)\\b',
+    '^(?:vite\\s+build|webpack|rollup\\s+-c|esbuild|tsc|vue-tsc|svelte-check|next\\s+build|nuxt\\s+(?:build|generate)|ng\\s+build|astro\\s+build|parcel\\s+build)\\b',
+    '^(?:\\./)?(?:go\\s+(?:build|test|vet)|cargo\\s+(?:build|test|check|clippy)|mvn\\w*\\s+(?:package|install|test|verify|compile)|gradlew?\\s+(?:build|test|assemble|check)|make\\b|pytest|jest|vitest|mocha|node\\s+--test)\\b',
+  ].join('|'),
+)
+
 /** 密钥、凭据、环境变量的落盘位置。 */
 const SENSITIVE_TARGET =
   /(?:^|[\\/])(?:\.env(?:\.[\w-]+)?|\.npmrc|\.pypirc|id_[rd]sa|credentials\.(?:json|ya?ml)|secrets?\.(?:json|ya?ml|txt))$|\.(?:pem|key|p12|pfx)$/i
@@ -45,6 +60,22 @@ export function inspectCommand(text) {
     const segment = raw.trim().replace(/^(?:[A-Za-z_]\w*=\S*\s+)+/, '')
     if (!/^git\s/.test(segment)) continue
     if (GIT_WRITE.test(segment) || GIT_DESTRUCTIVE.test(segment)) return segment
+  }
+  return undefined
+}
+
+/**
+ * 从命令文本里找出构建、打包、编译或测试的那一段。
+ *
+ * 与版本控制写操作同一套切段规则：写在引号里的文字、注释都不算命令。
+ *
+ * @returns 命中的那一段，或 undefined
+ */
+export function inspectBuild(text) {
+  if (typeof text !== 'string') return undefined
+  for (const raw of text.split(/&&|\|\||;|\n/)) {
+    const segment = raw.trim().replace(/^(?:[A-Za-z_]\w*=\S*\s+)+/, '')
+    if (BUILD_COMMAND.test(segment)) return segment
   }
   return undefined
 }
@@ -82,14 +113,28 @@ export function judge(execution, env = {}) {
 
   if (SHELL_TOOLS.has(name)) {
     const command = readArgument(args, ['command', 'cmd', 'script'])
+
     const hit = inspectCommand(command)
-    if (hit === undefined) return undefined
-    return [
-      '工程纪律（dsh-dev）：不代跑版本控制写操作。',
-      `命中的命令：${hit}`,
-      '把命令起草出来交给开发者执行；要提交信息时加载 dev-git-commit 生成草稿，不要自己跑。',
-      '本次确需放行：环境变量 DSH_DEV_GUARD=off，重启生效。',
-    ].join('\n')
+    if (hit !== undefined) {
+      return [
+        '工程纪律（dsh-dev）：不代跑版本控制写操作。',
+        `命中的命令：${hit}`,
+        '把命令起草出来交给开发者执行；要提交信息时加载 dev-git-commit 生成草稿，不要自己跑。',
+        '本次确需放行：环境变量 DSH_DEV_GUARD=off，重启生效。',
+      ].join('\n')
+    }
+
+    const build = inspectBuild(command)
+    if (build !== undefined) {
+      return [
+        '工程纪律（dsh-dev）：构建、打包、测试由开发者发起。',
+        `命中的命令：${build}`,
+        '写完代码就停手，把待跑命令和各自会产出什么列清楚交回去（见 dev-verify-on-request）。',
+        '本次确需放行：环境变量 DSH_DEV_GUARD=off，重启生效。',
+      ].join('\n')
+    }
+
+    return undefined
   }
 
   if (WRITE_TOOLS.has(name)) {

@@ -8,13 +8,7 @@ metadata:
 
 # commit-msg
 
-## 角色定位
-
-你是 commit 信息的「起草者」，不是「执行者」。
-
-- ❌ 职责：**绝不** 执行 `git commit`、`git commit --amend`、`git push`、`git reset --soft HEAD~1` 等任何修改提交历史的命令
-- 工作流：阅读 diff → 归类变更 → 起草符合 Conventional Commits 的中文 commit 信息 → 展示草稿 → 等待用户确认或微调
-- 唯一交付物：一段 commit 信息**文本**（在对话中输出，不写入文件、不调用 git）
+**唯一交付物是一段文本**：读 diff → 归类 → 起草 Conventional Commits 中文信息 → 交出去等确认。什么时候允许提交，归 `dev-commit-on-request` 管，这里不重复。
 
 ## 语言规则
 
@@ -32,7 +26,7 @@ metadata:
    - `git diff --staged --stat` 然后 `git diff --staged` — 已暂存内容
    - `git diff --stat` 然后 `git diff` — **仅当 staged 为空时**才跑（避免把"未决定要不要提交"的修改拉进来）
    - 如有需要：`git log -5 --oneline` — 了解项目历史风格（如有 commitlint 配置、scope 习惯）
-   - **不要** 运行 `git add`、`git commit`、`git push`、`git stash`（写入命令详见"硬约束"小节）
+   - 全程只读：这条流水线里不出现任何写命令
 
 2. **判断变更范围**（staged 优先，staged 与 unstaged **不会合并**）：
    - **staged 有内容** → 范围 = staged（**只**分析 staged，unstaged 里的"未决定要不要提交"的修改**不**进 commit 信息）
@@ -174,15 +168,11 @@ Refs #234
 
 > 用户没主动说"提交"之前，不要主动问"要不要我帮你 commit"。
 
-## 不做的事（硬约束）
+## 不写的署名与钩子
 
-> 任何 git **写入**命令一律不执行：`git add` / `git commit` / `git commit -m` / `git commit --amend` / `git push` / `git reset --soft` / `git stash` / `git tag` / `git branch`（写）/ `git checkout -b` / `git merge` / `git rebase` 等。
-> git **只读**命令（status、diff、log、show、cat-file 等）正常使用。
-
-- ❌ 不写入 `.git/COMMIT_EDITMSG` 或 `prepare-commit-msg` 钩子
-- ❌ 不在 commit 信息里自动塞入 `Signed-off-by`、`Co-authored-by: Claude` 之类的署名（除非用户明确要求）
-- ❌ 不自动 `--no-verify` 绕过任何钩子
-- ❌ 不臆测不存在的变更；diff 看不到的逻辑不要编进 body
+- 不自动塞 `Signed-off-by`、`Co-authored-by` 这类署名，除非明确要求。
+- 不用 `--no-verify` 绕过钩子。
+- 不臆测不存在的变更；diff 看不到的逻辑不要编进 body。
 
 ## 不在职责
 
@@ -191,7 +181,6 @@ Refs #234
 - **回看 / 总结历史 commit 信息**（如"看看最近 5 个 commit 信息是怎么写的"）→ 这是查询类需求，让用户直接看 `git log` 或自行决定
 - **非 git 仓库**（当前目录没有 `.git`）→ 告知用户当前不是 git 仓库，无法生成 commit 信息
 - **修改 / 重写已有 commit 信息**（如 `--amend`）→ 同样只输出新文本，让用户自己执行
-- **执行任何"提交"动作** → 即便用户说"这个草稿可以，提交吧"，仍只输出文本
 
 ## 边界情况
 

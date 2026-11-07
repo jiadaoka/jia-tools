@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { inspectCommand, isSensitiveTarget, judge } from '../src/kernel.js'
+import { inspectBuild, inspectCommand, isSensitiveTarget, judge } from '../src/kernel.js'
 
 test('只读的 git 命令一律放行', () => {
   for (const command of [
@@ -86,4 +86,64 @@ test('门禁对坏输入不抛错', () => {
   assert.equal(judge({ name: 'win_bash', arguments: null }), undefined)
   assert.equal(judge({ name: 'write', arguments: 'nope' }), undefined)
   assert.equal(judge({ name: 'write', arguments: {} }), undefined)
+})
+
+test('构建与测试命令被识别', () => {
+  for (const command of [
+    'npm run build',
+    'npm run build:prod',
+    'pnpm test',
+    'yarn build',
+    'bun run typecheck',
+    'npm run lint',
+    'vite build',
+    'tsc --noEmit',
+    'vue-tsc --noEmit',
+    'go build ./...',
+    'go test ./...',
+    'cargo build --release',
+    'cargo test',
+    'mvn package',
+    './gradlew build',
+    'make',
+    'pytest -q',
+    'jest',
+    'node --test',
+  ]) {
+    assert.notEqual(inspectBuild(command), undefined, command)
+  }
+})
+
+test('不是构建的命令不被识别', () => {
+  for (const command of [
+    'npm install',
+    'npm run dev',
+    'pnpm dev',
+    'vite',
+    'node script.js',
+    'node -e "console.log(1)"',
+    'git status',
+    'ls dist',
+    'echo "npm run build"',
+    'cat package.json',
+  ]) {
+    assert.equal(inspectBuild(command), undefined, command)
+  }
+})
+
+test('命令链里夹着构建也算', () => {
+  assert.notEqual(inspectBuild('cd app && npm run build'), undefined)
+  assert.notEqual(inspectBuild('npm ci; npm test'), undefined)
+  assert.notEqual(inspectBuild('npm ci\nnpm run build'), undefined)
+})
+
+test('门禁：构建类命令被拒', () => {
+  const reason = judge({ name: 'win_bash', arguments: { command: 'npm run build' } })
+  assert.equal(typeof reason, 'string')
+  assert.match(reason, /构建、打包、测试/)
+})
+
+test('门禁：版本控制写操作的理由与构建分开', () => {
+  const reason = judge({ name: 'win_bash', arguments: { command: 'git commit -m x' } })
+  assert.match(reason, /版本控制写操作/)
 })
