@@ -1,18 +1,28 @@
 /**
  * dsh-predev — 开发之前。
  *
- * A DeepSeek Harness (DSH) bundle plugin registering three runtime skills
+ * A DeepSeek Harness (DSH) bundle plugin registering five runtime skills
  * that carry an idea from "我准备搞个小玩意" to the first line of code:
  *
  *   - `predev`         (model + user)  the conversation and the record: tier
  *                                      the investment, ask only the frontier,
  *                                      stop on the floor, write PREDEV.md.
+ *   - `predev-req`     (model + user)  the same conversation written down as a
+ *                                      document someone else can build from:
+ *                                      three-line boundary, scope, 8 sections.
  *   - `predev-sketch`  (model + user)  a throwaway, deliberately fake
  *                                      prototype that answers one question.
+ *   - `predev-req-ui`  (model + user)  the opposite of a sketch: a design draft
+ *                                      that leaves the session, so it has to
+ *                                      survive on its own.
  *   - `predev-wait`    (user only)     "that did not land, re-pitch it".
  *
- * Two skills, not five: asking and recording are one act, and a prototype is
- * the only thing here that produces something other than a decision.
+ * Five, in two pairs: writing it down (predev / predev-req) and looking at it
+ * (predev-sketch / predev-req-ui). Each pair splits on the same axis — does the
+ * output stay in this session, or does it leave. Kept as separate skills rather
+ * than one skill with branches, because the two halves of a pair pull in
+ * opposite directions (a sketch that polishes is waste; a draft that does not
+ * polish is a rework).
  *
  * Skill bodies are plain `skills/<name>/SKILL.md` files carrying the same
  * frontmatter grammar the DSH filesystem provider understands, so the very
@@ -31,7 +41,7 @@ export const name = 'dsh-predev'
 export const inject = ['skills']
 
 /** Skill directory names, in catalog order. Each must equal its frontmatter `name`. */
-const SKILL_IDS = ['predev', 'predev-sketch', 'predev-wait']
+const SKILL_IDS = ['predev', 'predev-req', 'predev-sketch', 'predev-req-ui', 'predev-wait']
 
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/
 

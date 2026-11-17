@@ -16,9 +16,21 @@ import { apply, inject, name } from '../index.js'
 
 const EXPECTED = {
   predev: { modelInvocable: true, userInvocable: true },
+  'predev-req': { modelInvocable: true, userInvocable: true },
   'predev-sketch': { modelInvocable: true, userInvocable: true },
+  'predev-req-ui': { modelInvocable: true, userInvocable: true },
   'predev-wait': { modelInvocable: false, userInvocable: true },
 }
+
+// 这个包要能单独装到任何项目上，技能正文里一旦漏进某个具体产品/某家设计系统的
+// 名字，条款就只在那个项目里成立。这类污染读的时候不刺眼，用的时候才发现整段
+// 用不上——所以卡在装之前，而不是等下次在别的项目里踩到。
+const FORBIDDEN = [
+  { pattern: /\bSNC\b|新炬|snc-/i, why: '具体产品名' },
+  { pattern: /ops-copilot|CMDB|Browser-harness|auto-test/i, why: '具体项目/工具链' },
+  { pattern: /dsh-req|requirement-handoff|requirement-analysis-v\d/i, why: '外部技能或仓库名' },
+  { pattern: /智能体|告警|运维|探针/, why: '某个业务域的专有名词' },
+]
 
 const problems = []
 const registered = new Map()
@@ -57,10 +69,15 @@ for (const extra of registered.keys()) {
 }
 
 // A skill may only point at another skill that exists, otherwise the
-// "load predev-sketch" hand-off dead-ends at runtime.
+// "load predev-sketch" hand-off dead-ends at runtime. Names may be one segment
+// (`predev`) or more (`predev-req-ui`), so the pattern has to accept a chain.
 for (const [skillName, skill] of registered) {
-  for (const [, reference] of skill.content.matchAll(/`(predev(?:-[a-z]+)?)`/g)) {
+  for (const [, reference] of skill.content.matchAll(/`(predev(?:-[a-z]+)*)`/g)) {
     if (!(reference in EXPECTED)) problems.push(`${skillName}: 引用了不存在的技能 ${reference}`)
+  }
+  for (const { pattern, why } of FORBIDDEN) {
+    const hit = `${skill.description}\n${skill.content}`.match(pattern)
+    if (hit !== null) problems.push(`${skillName}: 正文里有${why}（${hit[0]}），条款换项目就不成立了`)
   }
 }
 
