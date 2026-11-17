@@ -1,0 +1,36 @@
+{
+  "name": "dsh-review",
+  "version": "0.1.1",
+  "description": "代码审查的纪律：范围由 Open Code Review 判定，判断与报告由本包规范。一个 DeepSeek Harness bundle。",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "src",
+    "cordis.patch.yml",
+    "prompt.md",
+    "skills",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "plugin",
+    "bundle",
+    "code-review",
+    "open-code-review",
+    "skill"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

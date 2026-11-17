@@ -1,0 +1,11 @@
+# dsh-review bundle patch：profile 的 bundles 列表包含本包时应用的层。
+#
+# 默认值全在代码里（二进制路径、超时），这里不写 config 也能用。
+# 需要覆盖时才展开下面两行，注意 DSH 对 config 是整体替换而非深合并。
+
+- insert:
+    - id: review-discipline
+      name: 'dsh-review'
+      # config:
+      #   ocrPath: ''        # 显式指定 opencodereview 可执行文件或安装目录
+      #   timeoutMs: 180000  # 单次调用上限（毫秒）
