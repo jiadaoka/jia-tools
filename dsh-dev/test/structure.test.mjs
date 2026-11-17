@@ -28,6 +28,14 @@ test('条款数量与目录数量一致（没有静默丢失）', () => {
   assert.ok(catalog.all().length > 0, '一条条款都没有')
 })
 
+test('package.json 里写的条款数与实际目录数一致', () => {
+  // 这个数字每加一条条款就要改一次；改漏了，描述就成了对外的假承诺。
+  const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
+  const declared = /(\d+)\s*条/.exec(pkg.description ?? '')
+  assert.ok(declared !== null, 'description 里没写条款数')
+  assert.equal(Number(declared[1]), listSkillDirectories(SKILLS_ROOT).length, 'description 的条款数与 skills/ 对不上')
+})
+
 test('每条 description 都写清了什么时候适用', () => {
   for (const skill of createCatalog(SKILLS_ROOT).all()) {
     assert.match(skill.description, /适用|触发/, `${skill.name}: 模型路由不到它`)
@@ -63,10 +71,26 @@ test('草稿区里没有生效形态的文件', () => {
   }
 })
 
+test('草稿区不随包分发', () => {
+  // 不注册只是「本机不生效」；进了 files 白名单，撤下的条款会跟着装到别人机器上。
+  const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
+  assert.ok(Array.isArray(pkg.files), 'package.json 缺少 files 白名单')
+  assert.ok(!pkg.files.includes('draft'), 'draft/ 进了 files 白名单')
+})
+
 test('常驻提示控制在 4–6 条', () => {
   const items = readResident().split(/\r?\n/).filter((line) => /^\d+\.\s/.test(line))
   assert.ok(items.length >= 4, `常驻提示只有 ${items.length} 条，太少`)
   assert.ok(items.length <= 6, `常驻提示有 ${items.length} 条，注意力会被稀释`)
+})
+
+test('「写完就停手」是常驻的第一条', () => {
+  // 整包最容易破的一条，放在每轮最先读到的位置。挪走了就等于降级。
+  const items = readResident().split(/\r?\n/).filter((line) => /^\d+\.\s/.test(line))
+  const first = items[0] ?? ''
+  for (const action of ['不构建', '不跑测试', '不起服务']) {
+    assert.ok(first.includes(action), `第一条没写「${action}」：${first}`)
+  }
 })
 
 test('公共条款里不出现具体仓库事实', () => {
@@ -76,4 +100,35 @@ test('公共条款里不出现具体仓库事实', () => {
     const hit = leak.exec(skill.content)
     assert.equal(hit, null, `${skill.name}: 出现仓库事实「${hit?.[0]}」`)
   }
+})
+
+test('同一条规则不写在两个条款里', () => {
+  // 判据：一整句正文出现在两条条款里，说明这条规则有两个归属，改的时候只改一处就会漂移。
+  // 只看散文句：标题、表格、代码块、清单里的短句都不算——它们天然会重复。
+  const seen = new Map()
+  const duplicated = []
+
+  for (const skill of createCatalog(SKILLS_ROOT).all()) {
+    let fenced = false
+    for (const raw of skill.content.split(/\r?\n/)) {
+      const line = raw.trim()
+      if (line.startsWith('```')) {
+        fenced = !fenced
+        continue
+      }
+      if (fenced) continue
+      if (line.length < 22) continue
+      if (/^[#|<>\-*]/.test(line)) continue
+      if (line.startsWith('---')) continue
+
+      const owner = seen.get(line)
+      if (owner === undefined) {
+        seen.set(line, skill.name)
+        continue
+      }
+      if (owner !== skill.name) duplicated.push(`${owner} ↔ ${skill.name}: ${line.slice(0, 40)}`)
+    }
+  }
+
+  assert.deepEqual(duplicated, [], '同一句话写了两遍：留一处，另一处改成引用')
 })

@@ -10,7 +10,7 @@
 export const SHELL_TOOLS = new Set(['bash', 'pwsh', 'win_bash', 'shell', 'terminal'])
 
 /** 会落盘的工具，以及它们参数里表示路径的键。 */
-export const WRITE_TOOLS = new Set(['write', 'edit'])
+export const WRITE_TOOLS = new Set(['write', 'edit', 'str_replace_editor'])
 const PATH_KEYS = ['file_path', 'path', 'target']
 
 /**
@@ -25,6 +25,18 @@ const GIT_DESTRUCTIVE =
   /^git\s+(?:(?:-[Cc]\s+\S+|--?\S+)\s+)*(branch\s+(?:-[dD]|--delete)|tag\s+(?:-d|--delete)|stash\s+(?:drop|clear))\b/
 
 /**
+ * 包管理器写在脚本名之前的位置选项：`pnpm -C app build`、`yarn --cwd web test`。
+ * 不认它们，`-C` 一加就绕过去了。
+ */
+const LOCATE = String.raw`(?:(?:-C|--prefix|--dir|--cwd|-w|--workspace|--filter|-F)\s+\S+\s+)*`
+
+/** 脚本名里出现就算构建的词。`dev`、`install`、`preview` 故意不在其中。 */
+const SCRIPT = String.raw`build|dist|bundle|package|compile|test|typecheck|type-check|check|lint|verify`
+
+/** 平时靠 `npx` 之类临时执行器才跑得到的构建与测试工具。 */
+const BUILDER = String.raw`tsc|vue-tsc|svelte-check|vite|webpack|rollup|esbuild|jest|vitest|mocha|ava|playwright|cypress|next|nuxt|astro|parcel|ng|turbo|nx`
+
+/**
  * 构建、打包、编译、测试类命令。
  *
  * 这些会写产物、占 CPU、改快照，而且「跑通了吗」这个判断属于开发者。
@@ -33,11 +45,79 @@ const GIT_DESTRUCTIVE =
  */
 const BUILD_COMMAND = new RegExp(
   [
-    '^(?:npm|pnpm|yarn|bun)\\s+(?:run\\s+)?(?:build|dist|bundle|package|compile|test|test:[\\w-]+|typecheck|type-check|lint|check)\\b',
-    '^(?:vite\\s+build|webpack|rollup\\s+-c|esbuild|tsc|vue-tsc|svelte-check|next\\s+build|nuxt\\s+(?:build|generate)|ng\\s+build|astro\\s+build|parcel\\s+build)\\b',
-    '^(?:\\./)?(?:go\\s+(?:build|test|vet)|cargo\\s+(?:build|test|check|clippy)|mvn\\w*\\s+(?:package|install|test|verify|compile)|gradlew?\\s+(?:build|test|assemble|check)|make\\b|pytest|jest|vitest|mocha|node\\s+--test)\\b',
+    // npm run build / pnpm -C app test / yarn --cwd web typecheck
+    `^(?:npm|pnpm|yarn|bun)\\s+${LOCATE}(?:run(?:-script)?\\s+)?(?:${SCRIPT})[\\w:-]*\\b`,
+    // 直接调构建器
+    `^(?:vite\\s+build|webpack|rollup\\s+-c|esbuild|tsc|vue-tsc|svelte-check|next\\s+build|nuxt\\s+(?:build|generate)|ng\\s+build|astro\\s+build|parcel\\s+build)\\b`,
+    // npx tsc / pnpm dlx vite / bunx vitest：个人项目里最常见的「顺手验一下」
+    `^(?:npx|pnpx|bunx|npm\\s+exec|pnpm\\s+dlx)\\s+(?:--?\\S+\\s+)*(?:${BUILDER})\\b`,
+    // monorepo 编排器直调：`turbo run build`、`nx build app`、`nx run web:test`。
+    // 它们只编排构建与测试，没有 dev server 形态，所以直调也算构建；
+    // `nx g`、`turbo prune` 这类不含构建词的目标不受影响。
+    `^(?:turbo|nx)\\s+(?:run\\s+)?[\\w:-]*(?:${SCRIPT})[\\w:-]*\\b`,
+    // 其他语言的构建与测试
+    `^(?:\\./)?(?:go\\s+(?:build|test|vet)|cargo\\s+(?:build|test|check|clippy)|mvn\\w*\\s+(?:package|install|test|verify|compile)|gradlew?\\s+(?:build|test|assemble|check)|make\\b|pytest|jest|vitest|mocha|node\\s+--test)\\b`,
   ].join('|'),
 )
+
+/** `bash -c "…"` / `pwsh -NoProfile -Command "…"` 的外壳。 */
+const SHELL_WRAPPER = /^(?:bash|sh|zsh|dash|pwsh|powershell)(?:\s+-\S+)*\s+-(?:c|command)\s+([\s\S]+)$/i
+
+/** `cmd /c …` 的外壳。 */
+const CMD_WRAPPER = /^cmd(?:\.exe)?\s+\/c\s+([\s\S]+)$/i
+
+/**
+ * 剥掉一层 shell 外壳，拿到真正会被执行的命令。
+ *
+ * 包一层 `bash -c` 不改变命令的性质：它仍然是构建，仍然占用户的 CPU。
+ * 递归深度在 `commandSegments` 里封顶，避免构造出来的嵌套拖死判定。
+ */
+function unwrapShell(segment) {
+  const match = SHELL_WRAPPER.exec(segment) ?? CMD_WRAPPER.exec(segment)
+  if (match === null) return undefined
+  let inner = match[1].trim()
+  const quote = inner[0]
+  // 只取到配对的收尾引号：`bash -c "npm run build" --flag` 后面还挂着参数，
+  // 用「整段以引号收尾」判断会漏掉这一种。
+  if (quote === '"' || quote === "'") {
+    const close = inner.indexOf(quote, 1)
+    if (close > 0) inner = inner.slice(1, close).trim()
+  }
+  return inner.length === 0 ? undefined : inner
+}
+
+/**
+ * 命令前缀：环境变量赋值、`sudo`、`env`、`command`。
+ *
+ * 它们不改变命令的性质——`CI=1 npm run build` 和 `sudo npm run build` 都还是构建。
+ * 只剥一层不算完：`CI=1 sudo npm run build` 要连剥两次，所以循环剥到底。
+ */
+const PREFIX = /^(?:(?:[A-Za-z_]\w*=\S*)|sudo|env|command)(?:\s+|$)/
+
+function stripPrefix(segment) {
+  let rest = segment
+  let hit
+  while ((hit = PREFIX.exec(rest)) !== null) rest = rest.slice(hit[0].length)
+  return rest.trim()
+}
+
+/**
+ * 把命令文本切成真正独立执行的段。
+ *
+ * 先按 `&&`、`||`、`;`、换行切，每段的第一个词必须是命令本身——
+ * 所以 `echo "git commit"` 里引号内的文字不算命令。再对剥得开的段
+ * 递归进去，`bash -c "npm run build"` 与直接写 `npm run build` 等价。
+ */
+function* commandSegments(text, depth = 0) {
+  if (typeof text !== 'string' || depth > 3) return
+  for (const raw of text.split(/&&|\|\||;|\n/)) {
+    const segment = stripPrefix(raw.trim())
+    if (segment.length === 0) continue
+    yield segment
+    const inner = unwrapShell(segment)
+    if (inner !== undefined) yield* commandSegments(inner, depth + 1)
+  }
+}
 
 /** 密钥、凭据、环境变量的落盘位置。 */
 const SENSITIVE_TARGET =
@@ -49,15 +129,10 @@ const TEMPLATE_SUFFIX = /\.(?:example|sample|template|dist)$/i
 /**
  * 从命令文本里找出真正会被执行的那一段版本控制写操作。
  *
- * 按 `&&`、`||`、`;`、换行切段，每段的第一个词必须是 `git`——所以
- * `echo "git commit"` 里出现在引号内的文字不算命令，注释也不算。
- *
  * @returns 命中的那一段，或 undefined
  */
 export function inspectCommand(text) {
-  if (typeof text !== 'string') return undefined
-  for (const raw of text.split(/&&|\|\||;|\n/)) {
-    const segment = raw.trim().replace(/^(?:[A-Za-z_]\w*=\S*\s+)+/, '')
+  for (const segment of commandSegments(text)) {
     if (!/^git\s/.test(segment)) continue
     if (GIT_WRITE.test(segment) || GIT_DESTRUCTIVE.test(segment)) return segment
   }
@@ -67,14 +142,13 @@ export function inspectCommand(text) {
 /**
  * 从命令文本里找出构建、打包、编译或测试的那一段。
  *
- * 与版本控制写操作同一套切段规则：写在引号里的文字、注释都不算命令。
+ * 与版本控制写操作同一套切段规则：`npx tsc`、`pnpm -C app build`、
+ * `bash -c "npm run build"` 都按同一条命令判。
  *
  * @returns 命中的那一段，或 undefined
  */
 export function inspectBuild(text) {
-  if (typeof text !== 'string') return undefined
-  for (const raw of text.split(/&&|\|\||;|\n/)) {
-    const segment = raw.trim().replace(/^(?:[A-Za-z_]\w*=\S*\s+)+/, '')
+  for (const segment of commandSegments(text)) {
     if (BUILD_COMMAND.test(segment)) return segment
   }
   return undefined

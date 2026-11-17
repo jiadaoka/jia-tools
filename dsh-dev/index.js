@@ -14,11 +14,12 @@
 
 import { watch } from 'node:fs'
 import { readFileSync } from 'node:fs'
+import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { assemble } from './src/assembly.js'
 import { createCatalog, PROVIDER_NAME, toCandidate, toDefinition } from './src/catalog.js'
-import { createFingerprintCache } from './src/fingerprint.js'
+import { createFingerprintCache, mergeFingerprints } from './src/fingerprint.js'
 import { judge } from './src/kernel.js'
 
 export { PROVIDER_NAME }
@@ -54,23 +55,96 @@ function watchSkills(root, onChange) {
       timer = setTimeout(onChange, 200)
     })
     watcher.on('error', () => {})
+    // 监听不该成为进程退出的阻碍。一次性命令（`node 某个脚本`）挂完插件就跑完了，
+    // 没有这一行，watcher 会把事件循环拽住不放。
+    watcher.unref?.()
     return watcher
   } catch {
     return undefined
   }
 }
 
+/** 这些目录里的文件触碰不计入「正在哪个项目里干活」。 */
+const NOISE_PATH = /(^|[\\/])(?:node_modules|\.git|dist|build|\.dsh|\.idea|\.vscode)([\\/]|$)/
+
+/** 会话内最多记多少个触碰目录。够覆盖「同时开三四个库」，又不会无限读盘。 */
+const MAX_TOUCHED = 16
+
+/**
+ * 监听文件触碰，把「读到了哪个项目的文件」补进身份。
+ *
+ * 只有 `cwd` 时，条款是按开会话的那个目录算的：在 A 仓库的会话里读 B 仓库的
+ * 组件，B 的栈条款不会出现，模型只能凭记忆写。个人项目里同时开几个库是常态，
+ * 所以这里按**栈并集**补：碰过的目录一起参与指纹计算。
+ *
+ * 与 dsh-snc-dev 的差别：那边要区分「哪个仓库」（便于挂仓库事实），这里只用到
+ * 技术栈一层，所以不需要激活表、单调序、去抖刷新那一套。
+ *
+ * @param ctx 宿主上下文
+ * @param fingerprintOf 目录 → 指纹
+ * @param touched 已触碰目录（就地修改，调用方读它算并集）
+ * @param onNewDir 新目录首次加入时回调（用于刷新技能目录）
+ */
+function watchTouchedFiles(ctx, fingerprintOf, touched, onNewDir) {
+  if (typeof ctx.on !== 'function') return
+
+  const record = (target) => {
+    const raw = target?.displayPath ?? target?.path ?? target?.realPath
+    if (typeof raw !== 'string' || raw.length === 0) return
+    if (NOISE_PATH.test(raw)) return
+
+    const directory = dirname(raw)
+    if (touched.includes(directory)) return
+
+    // 认不出栈的目录不必记：它合并进来也只是多读一次盘。
+    if (fingerprintOf(directory).unknown) return
+
+    if (touched.length >= MAX_TOUCHED) touched.shift()
+    touched.push(directory)
+    onNewDir()
+  }
+
+  if (typeof ctx.effect === 'function') {
+    ctx.effect(() => {
+      const off = ctx.on('fs/observed', record)
+      return typeof off === 'function' ? off : () => {}
+    }, 'dsh-dev: 按文件触碰补充身份')
+    return
+  }
+  ctx.on('fs/observed', record)
+}
+
 export function apply(ctx) {
   const catalog = createCatalog(SKILLS_ROOT)
   const fingerprints = createFingerprintCache()
+
+  // 会话内触碰过的目录：与 cwd 一起参与身份计算，栈取并集。
+  const touched = []
+  let control
+
+  const identityOf = (cwd) => {
+    const base = fingerprints.of(cwd)
+    if (touched.length === 0) return base
+    return mergeFingerprints([base, ...touched.map((directory) => fingerprints.of(directory))])
+  }
 
   // 第一层：按身份装配的条款。
   //
   // 用 provider 而不是 register()：register 注册的是全局清单，provider 的
   // list(options) 拿得到 cwd，才能按「这是哪个项目」决定露出哪几条。
-  ctx.skills.registerProvider((control) => {
+  ctx.skills.registerProvider((handle) => {
+    control = handle
     const watcher = watchSkills(SKILLS_ROOT, () => {
-      catalog.reload()
+      // 编辑器保存是「先清空再写入」两步，中间那一瞬 frontmatter 是坏的。
+      // 这时解析会抛错，而这里跑在 fs.watch 的定时器里，抛出去就是未捕获异常，
+      // 代价是宿主进程直接退出。所以只警告、沿用上一份可用的条款，等下一次改动再试；
+      // 挂载期的同类错误仍然照抛——那是「拒绝挂载」，两者不该混为一谈。
+      try {
+        catalog.reload()
+      } catch (error) {
+        ctx.logger?.warn?.(`dsh-dev: 条款重载失败，沿用上一份（${error.message}）`)
+        return
+      }
       fingerprints.clear()
       control.invalidate()
     })
@@ -81,7 +155,7 @@ export function apply(ctx) {
 
       async list(options = {}) {
         const cwd = options.cwd ?? process.cwd()
-        return assemble(catalog.all(), fingerprints.of(cwd)).map(toCandidate)
+        return assemble(catalog.all(), identityOf(cwd)).map(toCandidate)
       },
 
       async get(candidate) {
@@ -103,4 +177,12 @@ export function apply(ctx) {
   if (tools !== undefined) {
     tools.guard((execution) => judge(execution, process.env))
   }
+
+  // 身份补充：读到别的项目里的文件时，把那个项目的栈并进来。
+  watchTouchedFiles(
+    ctx,
+    (directory) => fingerprints.of(directory),
+    touched,
+    () => control?.invalidate?.(),
+  )
 }

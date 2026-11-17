@@ -8,12 +8,16 @@ import { apply } from '../index.js'
 
 /** 用一个桩 ctx 挂载插件，拿到它注册的三样东西。 */
 function mount() {
-  const captured = { sections: [], guards: [], provider: undefined }
+  const captured = { sections: [], guards: [], provider: undefined, fsHandlers: [] }
   apply({
     skills: {
       registerProvider(factory) {
         captured.factory = factory
       },
+    },
+    on(event, handler) {
+      if (event === 'fs/observed') captured.fsHandlers.push(handler)
+      return () => {}
     },
     get(service) {
       if (service === 'systemPrompt') {
@@ -99,6 +103,43 @@ test('空目录认不出身份时全部可见（fail-open）', async () => {
   } finally {
     mounted.dispose()
     rmSync(empty, { recursive: true, force: true })
+  }
+})
+
+test('读到别的项目的文件时，那个项目的栈也算进来', async () => {
+  // 会话开在 python 项目里，但这一轮改的是另一个仓库的 .vue 文件。
+  const work = fixture({ 'package.json': JSON.stringify({ dependencies: { vue: '^3' } }) })
+  const other = fixture({ 'pyproject.toml': '[project]\nname = "x"\n' })
+  const mounted = mount()
+  try {
+    const names = async () => (await mounted.provider.list({ cwd: other })).map((entry) => entry.name)
+
+    assert.ok(!(await names()).includes('dev-vue-sfc-order'), '还没碰过 vue 文件时不该出现')
+
+    for (const handler of mounted.fsHandlers) handler({ path: join(work, 'App.vue') })
+
+    assert.ok((await names()).includes('dev-vue-sfc-order'), '碰过之后应当补上 vue 条款')
+  } finally {
+    mounted.dispose()
+    rmSync(work, { recursive: true, force: true })
+    rmSync(other, { recursive: true, force: true })
+  }
+})
+
+test('node_modules 里的触碰不计入身份', async () => {
+  const work = fixture({ 'package.json': JSON.stringify({ dependencies: { vue: '^3' } }) })
+  const other = fixture({ 'pyproject.toml': '[project]\nname = "x"\n' })
+  const mounted = mount()
+  try {
+    for (const handler of mounted.fsHandlers) {
+      handler({ path: join(work, 'node_modules', 'vue', 'index.js') })
+    }
+    const names = (await mounted.provider.list({ cwd: other })).map((entry) => entry.name)
+    assert.ok(!names.includes('dev-vue-sfc-order'), '依赖目录里的触碰不该点亮条款')
+  } finally {
+    mounted.dispose()
+    rmSync(work, { recursive: true, force: true })
+    rmSync(other, { recursive: true, force: true })
   }
 })
 

@@ -41,6 +41,15 @@ test('前置环境变量赋值不影响判定', () => {
   assert.match(inspectCommand('GIT_TRACE=1 git commit -m x') ?? '', /commit/)
 })
 
+test('sudo / env / command 前缀不影响判定', () => {
+  // 前缀不改变命令的性质。`sudo` 在个人机上很常见，漏一个就等于留了条绕道。
+  assert.match(inspectCommand('sudo git commit -m x') ?? '', /commit/)
+  assert.match(inspectCommand('command git push') ?? '', /push/)
+  assert.match(inspectBuild('sudo npm run build') ?? '', /build/)
+  assert.match(inspectBuild('CI=1 sudo npm run build') ?? '', /build/, '多层前缀要连剥到底')
+  assert.equal(inspectBuild('sudo git status'), undefined)
+})
+
 test('分支、标签、暂存区的删除单独判', () => {
   assert.match(inspectCommand('git branch -D feature/x') ?? '', /branch/)
   assert.equal(inspectCommand('git tag -l'), undefined)
@@ -76,6 +85,13 @@ test('门禁：写凭据被拒，写模板放行', () => {
   assert.equal(judge({ name: 'write', arguments: { file_path: '.env.example' } }), undefined)
 })
 
+test('门禁：所有落盘工具都受凭据路径约束，漏一个就等于留了后门', () => {
+  for (const name of ['write', 'edit', 'str_replace_editor']) {
+    assert.equal(typeof judge({ name, arguments: { file_path: '.env' } }), 'string', name)
+  }
+  assert.equal(typeof judge({ name: 'str_replace_editor', arguments: { path: 'secrets.yaml' } }), 'string')
+})
+
 test('门禁：总开关关闭后全部放行', () => {
   const env = { DSH_DEV_GUARD: 'off' }
   assert.equal(judge({ name: 'write', arguments: { file_path: '.env' } }, env), undefined)
@@ -109,9 +125,67 @@ test('构建与测试命令被识别', () => {
     'pytest -q',
     'jest',
     'node --test',
+    'turbo run build',
+    'turbo build',
+    'nx build app',
+    'nx run web:test',
   ]) {
     assert.notEqual(inspectBuild(command), undefined, command)
   }
+})
+
+test('构建：编排器里不含构建词的目标放行', () => {
+  // `nx g` 是生成器，`turbo prune` 是裁剪，都不是「跑一遍构建」。
+  for (const command of ['nx g @nx/react:app web', 'turbo prune', 'nx --version']) {
+    assert.equal(inspectBuild(command), undefined, command)
+  }
+})
+
+test('构建：npx 之类临时执行器调的构建器也算', () => {
+  for (const command of [
+    'npx tsc --noEmit',
+    'npx vue-tsc --noEmit',
+    'npx vite build',
+    'npx jest',
+    'npx vitest run',
+    'pnpm dlx vitest',
+    'bunx vite build',
+    'npm exec -- tsc',
+  ]) {
+    assert.notEqual(inspectBuild(command), undefined, command)
+  }
+  // 不是构建器的临时命令不拦：prettier 是格式化，不是构建。
+  assert.equal(inspectBuild('npx prettier -w .'), undefined)
+})
+
+test('构建：包管理器的定位选项不影响判定', () => {
+  for (const command of [
+    'pnpm -C packages/app build',
+    'pnpm -w run build',
+    'pnpm --filter web test',
+    'npm --prefix app run build',
+    'yarn --cwd web typecheck',
+  ]) {
+    assert.notEqual(inspectBuild(command), undefined, command)
+  }
+})
+
+test('构建：包一层 shell 不算绕过', () => {
+  for (const command of [
+    'bash -c "npm run build"',
+    "sh -c 'pnpm test'",
+    'cmd /c npm run build',
+    'pwsh -NoProfile -Command "npm run build"',
+    'powerShell -Command "npx tsc --noEmit"',
+    'bash -c "npm run build" --flag',
+  ]) {
+    assert.notEqual(inspectBuild(command), undefined, command)
+  }
+})
+
+test('git：包一层 shell 也不算绕过', () => {
+  assert.match(inspectCommand('bash -c "git commit -m x"') ?? '', /commit/)
+  assert.match(inspectCommand("sh -c 'git push'") ?? '', /push/)
 })
 
 test('不是构建的命令不被识别', () => {
@@ -120,6 +194,7 @@ test('不是构建的命令不被识别', () => {
     'npm run dev',
     'pnpm dev',
     'vite',
+    'npm run preview',
     'node script.js',
     'node -e "console.log(1)"',
     'git status',

@@ -100,6 +100,38 @@ export function fingerprintFrom(snapshot) {
   }
 }
 
+/**
+ * 合并多份指纹：会话里碰过的目录，栈应当取并集。
+ *
+ * 只合并栈与仓库名，不做权重——「读过 a 的文件」和「在 b 目录下开会话」在
+ * 这里等价。个人场景下这是对的：读到 Vue 文件，说明这一轮就在 Vue 里干活，
+ * 该给的条款要给，藏起来的代价大于多给几条。
+ *
+ * @param {Array<ReturnType<typeof fingerprintFrom>>} fingerprints 待合并的指纹
+ * @returns {ReturnType<typeof fingerprintFrom>} 合并结果
+ */
+export function mergeFingerprints(fingerprints) {
+  const stacks = new Set()
+  const repos = []
+  let root
+
+  for (const fingerprint of fingerprints) {
+    if (fingerprint === undefined || fingerprint === null) continue
+    root ??= fingerprint.root
+    for (const stack of fingerprint.stacks ?? []) stacks.add(stack)
+    for (const repo of fingerprint.repos ?? []) {
+      if (!repos.includes(repo)) repos.push(repo)
+    }
+  }
+
+  return {
+    root,
+    stacks,
+    repos,
+    unknown: stacks.size === 0 && repos.length === 0,
+  }
+}
+
 /** 把目录读成快照。只读标记文件，不遍历目录树。 */
 export function readFingerprint(cwd) {
   const files = {}

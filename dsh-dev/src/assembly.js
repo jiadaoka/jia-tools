@@ -28,20 +28,23 @@ export const STACKS = new Set([
 /**
  * 一条条款对当前身份是否可见。
  *
- * 三条规则，按顺序：
+ * 四条规则，按顺序：
  *
- *   1. 识别不出身份 → 全部可见（fail-open）。藏起来的代价大于多给的代价：
+ *   1. `metadata.scope: always` → 恒定可见，跳过后面所有过滤。这是显式声明，
+ *      与「名字里第二词恰好不在栈表」的侥幸可见区分开。
+ *   2. 识别不出身份 → 全部可见（fail-open）。藏起来的代价大于多给的代价：
  *      规范多给几条最多是噪声，被藏起来是静默失效，表现为「模型突然开始乱写」。
- *   2. `dev-<栈>-*` → 栈必须命中。
- *   3. `metadata.repo` → 仓库必须命中。
+ *   3. `dev-<栈>-*` → 栈必须命中。
+ *   4. `metadata.repo` → 仓库必须命中。
  *
  * 仓库用声明而不是前缀：仓库名常含连字符（`dev-tools-service`），
  * 前缀解析在第一个 `-` 处就有歧义，声明没有。
  *
- * @param skill 至少含 name 与可选的 repo 声明
+ * @param skill 至少含 name 与可选的 repo / scope 声明
  * @param fingerprint 当前身份，见 fingerprint.js
  */
 export function visibleTo(skill, fingerprint) {
+  if (skill.scope === 'always') return true
   if (fingerprint.unknown === true) return true
 
   if (skill.repo !== undefined) return fingerprint.repos.includes(skill.repo)

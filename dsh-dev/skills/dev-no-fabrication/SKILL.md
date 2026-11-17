@@ -25,6 +25,19 @@ metadata:
 - 不凭文档快照、不凭记忆、不凭「上一个项目是这样」。
 - 「我记得这个库支持」是最常见的错误来源。同一个库的大版本之间行为会变，同一个方法在不同平台上的语义会变。
 
+读的方式不复杂，别用「我记得」代替：
+
+```sh
+# 实际装的是哪个版本（不是 package.json 里那个范围）
+node -p "require('./node_modules/<pkg>/package.json').version"
+# 这个导出到底存不存在
+node -e "console.log(Object.keys(require('<pkg>')))"
+# 后端：依赖树里实际解析出的版本
+mvn -q dependency:tree -Dincludes=<groupId>:<artifactId>
+```
+
+按快照下判断的后果很具体：以为不支持就写了降级代码，以为支持就用了编译不过的语法——两种都要返工。
+
 ## 3 自检
 
 1. 我写的路径、字段、配置项、库方法，每一处都能指出出处吗？

@@ -42,6 +42,19 @@ test('仓库声明优先于名字前缀', () => {
   assert.equal(visibleTo(skill, fp([], ['alpha'])), true)
 })
 
+test('scope: always 是显式声明，跳过一切过滤', () => {
+  // 这条测试的意义：过去它们能始终可见，只因为名字第二词不在栈表里，
+  // 是巧合而不是声明。写了 always 就必须真的被读到。
+  const always = { name: 'dev-vue-page-layout', scope: 'always' }
+  assert.equal(visibleTo(always, fp(['react'])), true)
+  assert.equal(visibleTo(always, fp([])), true)
+  assert.equal(visibleTo(always, unknown), true)
+  assert.equal(visibleTo(always, fp([], ['other'])), true)
+
+  // 没有声明的同名牌条款仍然按栈判，两者不能混为一谈。
+  assert.equal(visibleTo({ name: 'dev-vue-page-layout' }, fp(['react'])), false)
+})
+
 test('装配保持输入顺序并过滤', () => {
   const skills = [
     { name: 'dev-git-commit' },

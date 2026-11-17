@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { fingerprintFrom, repoOf } from '../src/fingerprint.js'
+import { fingerprintFrom, mergeFingerprints, repoOf } from '../src/fingerprint.js'
 
 test('认不出任何东西时标记为 unknown（fail-open 的判据）', () => {
   const fingerprint = fingerprintFrom({ files: {}, root: '/nowhere' })
@@ -55,4 +55,26 @@ test('有仓库没有技术栈时不算 unknown', () => {
   })
   assert.equal(fingerprint.unknown, false)
   assert.deepEqual(fingerprint.repos, ['thing'])
+})
+
+test('合并指纹取栈的并集，仓库去重', () => {
+  const vue = fingerprintFrom({
+    files: { 'package.json': JSON.stringify({ dependencies: { vue: '^3' } }), '.git/config': '[remote "origin"]\n\turl = x:a/alpha.git' },
+    root: '/alpha',
+  })
+  const python = fingerprintFrom({ files: { 'pyproject.toml': '[project]' }, root: '/beta' })
+
+  const merged = mergeFingerprints([vue, python])
+  assert.deepEqual([...merged.stacks].sort(), ['node', 'python', 'vue'])
+  assert.deepEqual(merged.repos, ['alpha'])
+  assert.equal(merged.unknown, false)
+  assert.equal(merged.root, '/alpha')
+
+  assert.deepEqual(mergeFingerprints([vue, vue]).repos, ['alpha'], '同一仓库不该出现两次')
+})
+
+test('合并全部为空时仍是 unknown', () => {
+  const empty = fingerprintFrom({ files: {}, root: '/nowhere' })
+  assert.equal(mergeFingerprints([empty, undefined]).unknown, true)
+  assert.equal(mergeFingerprints([]).unknown, true)
 })
